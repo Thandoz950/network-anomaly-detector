@@ -12,14 +12,15 @@ st.set_page_config(
 st.title("🛡️ Network Anomaly Detection Dashboard")
 st.markdown("---")
 
-# Load data
+# Dynamic path that works both locally and on Streamlit Cloud
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 @st.cache_data
 def load_data():
-    df = pd.read_csv('/home/thando/network-anomaly-detector/features.csv')
-    return df
+    return pd.read_csv(os.path.join(BASE_DIR, 'features.csv'))
 
 def load_alerts():
-    alerts = pd.read_csv('/home/thando/network-anomaly-detector/alerts.csv')
+    alerts = pd.read_csv(os.path.join(BASE_DIR, 'alerts.csv'))
     if 'status' not in alerts.columns:
         alerts['status'] = 'Investigating'
     if 'analyst_notes' not in alerts.columns:
@@ -39,7 +40,6 @@ col5.metric("Resolved", len(alerts[alerts['status'] == 'Resolved']))
 
 st.markdown("---")
 
-# --- Two column layout ---
 left, right = st.columns(2)
 
 with left:
@@ -62,7 +62,6 @@ with right:
 
 st.markdown("---")
 
-# --- Alert severity chart ---
 st.subheader("Alert Severity Breakdown")
 severity_counts = alerts['final_severity'].value_counts()
 colors = {'CRITICAL': 'red', 'HIGH': 'orange', 'MEDIUM': 'yellow'}
@@ -75,7 +74,6 @@ st.pyplot(fig3)
 
 st.markdown("---")
 
-# --- Top talkers ---
 st.subheader("Top Source IPs")
 top_ips = df['src_ip'].value_counts().head(5)
 fig4, ax4 = plt.subplots()
@@ -85,7 +83,6 @@ st.pyplot(fig4)
 
 st.markdown("---")
 
-# --- Alert Feed with response actions ---
 st.subheader("🚨 Alert Feed")
 
 col_f1, col_f2 = st.columns(2)
@@ -108,7 +105,6 @@ if status_filter != "ALL":
 
 st.markdown(f"Showing **{len(filtered)}** alerts")
 
-# Display each alert with response actions
 for idx, row in filtered.iterrows():
     severity_color = {
         'CRITICAL': '🔴',
@@ -117,9 +113,8 @@ for idx, row in filtered.iterrows():
     }.get(row['final_severity'], '⚪')
 
     with st.expander(f"{severity_color} [{row['final_severity']}] {row['src_ip']} → {row['dst_ip']} | {row['protocol']} | {row['size']} bytes"):
-        
         detail_col1, detail_col2 = st.columns(2)
-        
+
         with detail_col1:
             st.markdown(f"**Source IP:** {row['src_ip']}")
             st.markdown(f"**Destination IP:** {row['dst_ip']}")
@@ -135,23 +130,20 @@ for idx, row in filtered.iterrows():
                 index=["Investigating", "False Positive", "Confirmed Threat", "Resolved"].index(row['status']),
                 key=f"status_{idx}"
             )
-
             notes = st.text_area(
                 "Analyst notes",
                 value=row['analyst_notes'],
                 key=f"notes_{idx}",
                 placeholder="Add investigation notes here..."
             )
-
             if st.button("Save", key=f"save_{idx}"):
                 alerts.at[idx, 'status'] = new_status
                 alerts.at[idx, 'analyst_notes'] = notes
-                alerts.to_csv('/home/thando/network-anomaly-detector/alerts.csv', index=False)
+                alerts.to_csv(os.path.join(BASE_DIR, 'alerts.csv'), index=False)
                 st.success("Saved!")
 
 st.markdown("---")
 
-# --- Summary statistics ---
 st.subheader("📊 Investigation Summary")
 summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
 summary_col1.metric("Investigating", len(alerts[alerts['status'] == 'Investigating']))
