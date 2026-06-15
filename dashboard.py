@@ -1,20 +1,38 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
 import os
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 1. Page Configuration
 st.set_page_config(
     page_title="Network Anomaly Detector",
     page_icon="🛡️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-st.title("🛡️ Network Anomaly Detection Dashboard")
-st.markdown("---")
+# 2. Custom CSS
+st.markdown("""
+    <style>
+    .block-container {
+        padding-top: 3.5rem;
+        padding-bottom: 2rem;
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 28px;
+        font-weight: 700;
+    }
+    div.element-container img {
+        border-radius: 8px;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-# Dynamic path that works both locally and on Streamlit Cloud
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
+# 3. Load real data
 @st.cache_data
 def load_data():
     return pd.read_csv(os.path.join(BASE_DIR, 'features.csv'))
@@ -30,78 +48,147 @@ def load_alerts():
 df = load_data()
 alerts = load_alerts()
 
-# --- Top metrics row ---
-col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Total Packets", len(df))
-col2.metric("Total Alerts", len(alerts))
-col3.metric("Critical", len(alerts[alerts['final_severity'] == 'CRITICAL']))
-col4.metric("High", len(alerts[alerts['final_severity'] == 'HIGH']))
-col5.metric("Resolved", len(alerts[alerts['status'] == 'Resolved']))
+# 4. Sidebar
+with st.sidebar:
+    st.image(os.path.join(BASE_DIR, "logo.png"), width=80)
+    st.title("Control Center")
+    st.markdown("---")
 
-st.markdown("---")
-
-left, right = st.columns(2)
-
-with left:
-    st.subheader("Protocol Distribution")
-    proto_counts = df['protocol'].value_counts()
-    fig1, ax1 = plt.subplots()
-    ax1.pie(proto_counts, labels=proto_counts.index, autopct='%1.1f%%', startangle=90)
-    ax1.axis('equal')
-    st.pyplot(fig1)
-
-with right:
-    st.subheader("Packet Size Distribution")
-    fig2, ax2 = plt.subplots()
-    ax2.hist(df['size'], bins=30, color='steelblue', edgecolor='black')
-    ax2.set_xlabel("Packet Size (bytes)")
-    ax2.set_ylabel("Count")
-    ax2.axvline(df['size'].mean(), color='red', linestyle='--', label='Mean')
-    ax2.legend()
-    st.pyplot(fig2)
-
-st.markdown("---")
-
-st.subheader("Alert Severity Breakdown")
-severity_counts = alerts['final_severity'].value_counts()
-colors = {'CRITICAL': 'red', 'HIGH': 'orange', 'MEDIUM': 'yellow'}
-bar_colors = [colors.get(s, 'gray') for s in severity_counts.index]
-fig3, ax3 = plt.subplots()
-ax3.bar(severity_counts.index, severity_counts.values, color=bar_colors, edgecolor='black')
-ax3.set_xlabel("Severity")
-ax3.set_ylabel("Count")
-st.pyplot(fig3)
-
-st.markdown("---")
-
-st.subheader("Top Source IPs")
-top_ips = df['src_ip'].value_counts().head(5)
-fig4, ax4 = plt.subplots()
-ax4.barh(top_ips.index, top_ips.values, color='steelblue', edgecolor='black')
-ax4.set_xlabel("Packet Count")
-st.pyplot(fig4)
-
-st.markdown("---")
-
-st.subheader("🚨 Alert Feed")
-
-col_f1, col_f2 = st.columns(2)
-with col_f1:
     severity_filter = st.selectbox(
-        "Filter by severity",
+        "Filter Alerts by Severity",
         ["ALL", "CRITICAL", "HIGH", "MEDIUM"]
     )
-with col_f2:
+
     status_filter = st.selectbox(
-        "Filter by status",
+        "Filter Alerts by Status",
         ["ALL", "Investigating", "False Positive", "Confirmed Threat", "Resolved"]
     )
+
+    protocol_filter = st.multiselect(
+        "Filter by Protocol",
+        options=df['protocol'].unique().tolist(),
+        default=df['protocol'].unique().tolist()
+    )
+
+    st.markdown("---")
+    st.caption("System Status: **Operational**")
+    st.caption("Engine: Statistical + Isolation Forest")
+    st.caption(f"Dataset: {len(df)} packets captured")
+
+# 5. Header
+header_col1, header_col2 = st.columns([3, 1])
+with header_col1:
+   col_logo, col_title = st.columns([1, 5])
+with col_logo:
+    st.image(os.path.join(BASE_DIR, "logo.png"), width=120)
+with col_title:
+    st.markdown("<h1 style='padding-top: 20px;'>Network Anomaly Detector</h1>", unsafe_allow_html=True)
+    st.subheader("Traffic analysis and threat detection dashboard")
+with header_col2:
+    st.info("🔄 Data: Live capture")
+
+st.markdown("---")
+
+# 6. KPI Metrics Row
+metric_col1, metric_col2, metric_col3, metric_col4, metric_col5 = st.columns(5)
+
+with metric_col1:
+    st.metric("Total Packets", len(df))
+with metric_col2:
+    st.metric("Total Alerts", len(alerts))
+with metric_col3:
+    st.metric(
+        "Critical Alerts",
+        len(alerts[alerts['final_severity'] == 'CRITICAL']),
+        delta="Needs attention",
+        delta_color="inverse"
+    )
+with metric_col4:
+    st.metric("High Alerts", len(alerts[alerts['final_severity'] == 'HIGH']))
+with metric_col5:
+    st.metric("Resolved", len(alerts[alerts['status'] == 'Resolved']))
+
+st.markdown("---")
+st.markdown("### 📊 Traffic Overview")
+
+# 7. Charts Row 1
+chart_col1, chart_col2 = st.columns([2, 1])
+
+with chart_col1:
+    st.markdown("#### Packet Size Over Time")
+    df_sorted = df.copy()
+    df_sorted['index'] = range(len(df_sorted))
+    fig_line = px.line(
+        df_sorted,
+        x='index',
+        y='size',
+        color='protocol',
+        title="",
+        labels={'index': 'Packet Number', 'size': 'Size (bytes)', 'protocol': 'Protocol'},
+        color_discrete_map={'TCP': '#3b82f6', 'UDP': '#10b981', 'ICMP': '#f59e0b', 'OTHER': '#6b7280'}
+    )
+    fig_line.update_layout(margin=dict(t=10, b=10), height=300)
+    st.plotly_chart(fig_line, use_container_width=True)
+
+with chart_col2:
+    st.markdown("#### Protocol Breakdown")
+    proto_counts = df['protocol'].value_counts().reset_index()
+    proto_counts.columns = ['Protocol', 'Count']
+    fig_pie = px.pie(
+        proto_counts,
+        values='Count',
+        names='Protocol',
+        hole=0.4,
+        color_discrete_sequence=px.colors.sequential.RdBu
+    )
+    fig_pie.update_layout(margin=dict(t=0, b=0, l=0, r=0), height=300)
+    st.plotly_chart(fig_pie, use_container_width=True)
+
+# 8. Charts Row 2
+chart_col3, chart_col4 = st.columns(2)
+
+with chart_col3:
+    st.markdown("#### Alert Severity Breakdown")
+    severity_counts = alerts['final_severity'].value_counts().reset_index()
+    severity_counts.columns = ['Severity', 'Count']
+    color_map = {'CRITICAL': '#ef4444', 'HIGH': '#f97316', 'MEDIUM': '#eab308'}
+    fig_bar = px.bar(
+        severity_counts,
+        x='Severity',
+        y='Count',
+        color='Severity',
+        color_discrete_map=color_map
+    )
+    fig_bar.update_layout(margin=dict(t=10, b=10), height=300, showlegend=False)
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+with chart_col4:
+    st.markdown("#### Top Source IPs")
+    top_ips = df['src_ip'].value_counts().head(5).reset_index()
+    top_ips.columns = ['IP', 'Count']
+    fig_ips = px.bar(
+        top_ips,
+        x='Count',
+        y='IP',
+        orientation='h',
+        color='Count',
+        color_continuous_scale='Blues'
+    )
+    fig_ips.update_layout(margin=dict(t=10, b=10), height=300, showlegend=False)
+    st.plotly_chart(fig_ips, use_container_width=True)
+
+st.markdown("---")
+
+# 9. Alert Feed
+st.markdown("### 🚨 Alert Feed")
 
 filtered = alerts.copy()
 if severity_filter != "ALL":
     filtered = filtered[filtered['final_severity'] == severity_filter]
 if status_filter != "ALL":
     filtered = filtered[filtered['status'] == status_filter]
+if protocol_filter:
+    filtered = filtered[filtered['protocol'].isin(protocol_filter)]
 
 st.markdown(f"Showing **{len(filtered)}** alerts")
 
@@ -144,7 +231,8 @@ for idx, row in filtered.iterrows():
 
 st.markdown("---")
 
-st.subheader("📊 Investigation Summary")
+# 10. Investigation Summary
+st.markdown("### 📋 Investigation Summary")
 summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
 summary_col1.metric("Investigating", len(alerts[alerts['status'] == 'Investigating']))
 summary_col2.metric("False Positives", len(alerts[alerts['status'] == 'False Positive']))
@@ -152,4 +240,4 @@ summary_col3.metric("Confirmed Threats", len(alerts[alerts['status'] == 'Confirm
 summary_col4.metric("Resolved", len(alerts[alerts['status'] == 'Resolved']))
 
 st.markdown("---")
-st.caption("Network Anomaly Detection Tool — Built with Python, Scapy, scikit-learn, and Streamlit")
+st.caption("Network Anomaly Detection Tool — Built with Python, Scapy, scikit-learn, Plotly and Streamlit")
